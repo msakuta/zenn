@@ -316,6 +316,44 @@ terms[rhs].grad = grad
 
 個人的にはこれは結構残念な仕様です。同時可変アクセスを防ごうという意図は、安全なソフトウェアを目指すという目的からすれば悪くないと思いますが、型システムに統合されておらず実行時の動的チェックになっているので、コンパイル時に検出できず、実行時オーバーヘッドもあります（多分リリースビルドでは無効になるとは思いますが）。
 
+Rust であれば、まず借用チェッカがこのような参照を防ぎます（同じオブジェクトへの二つ以上の可変参照を作ることはできない）。この上で Cell を使って Copy な型のみ変更を許すか、 RefCell を使って実行時チェックのオーバーヘッドを受け入れるかをプログラマが選ぶことができます。
+
 結局、私の実装では毎回インデクシングすることにしました。
 
 このような仕様になった理由については想像は付きます。 Swift のようなある程度高レイヤの言語は、オブジェクトの寿命を参照カウンタや GC で制御し、プログラマに意識させないようにすることをゴールにしています。これは個別のヒープに確保される class のインスタンスについては問題ないのですが、配列や struct, enum のような一続きのオブジェクトの一部への参照を得る際には問題になります。このため、 Swift はまずそのような参照の作成を防いでいます。しかし、そのような参照が全く作れないのも不便なので、 `inout` 引数への参照渡しとしてだけ許しています。これはエイリアシングの問題を起こしうるので、実行時チェックをしているのだと思います。
+
+## ランタイムの依存先
+
+Swift はネイティブコンパイル言語ですが、実行時に独自のランタイムライブラリを必要とします。それだけではなく、共有ライブラリとして Swift の名前のついたいくつかのライブラリに依存します。
+
+```
+root@363d7037d889:/work# ldd main
+        linux-vdso.so.1 (0x00007ffedd506000)
+        libswiftSwiftOnoneSupport.so => /usr/lib/swift/linux/libswiftSwiftOnoneSupport.so (0x00007f92d54ac000)
+        libswiftCore.so => /usr/lib/swift/linux/libswiftCore.so (0x00007f92d4de4000)
+        libswift_Concurrency.so => /usr/lib/swift/linux/libswift_Concurrency.so (0x00007f92d4d4d000)
+        libswift_StringProcessing.so => /usr/lib/swift/linux/libswift_StringProcessing.so (0x00007f92d4c72000)
+        libswift_RegexParser.so => /usr/lib/swift/linux/libswift_RegexParser.so (0x00007f92d4b5f000)
+        libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f92d4948000)
+        libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007f92d46cb000)
+        libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007f92d45e2000)
+        libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f92d45b5000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007f92d54f8000)
+        libdispatch.so => /usr/lib/swift/linux/libdispatch.so (0x00007f92d4555000)
+        libswiftGlibc.so => /usr/lib/swift/linux/libswiftGlibc.so (0x00007f92d4540000)
+        libBlocksRuntime.so => /usr/lib/swift/linux/libBlocksRuntime.so (0x00007f92d453b000)
+```
+
+これはコンパイルした環境から持ち出すには依存先ライブラリもパッケージ化する必要があることを意味します。[依存先ライブラリをスタティックリンクする方法](https://www.swift.org/documentation/articles/static-linux-getting-started.html)もあるのですが、その情報がめちゃくちゃ見つけにくく、ランタイムがシステムにインストールされていることを前提としたツール群であるという印象を受けます。
+
+
+## 総括
+
+Rust の文脈でもたびたび言及されるので、触ってみるまでは Rust に近い低レイヤのプログラミング言語としても使えると思っていたのですが、実際には Rust や C++ よりも Go や Java や C# に近い、比較的高レイヤの言語であることが分かりました。特にランタイムへの依存性はマーケティング的な意図を感じます。以下のようなイメージでしょうか。
+
+* Go - Google
+* Java - Oracle
+* C# - Microsoft
+* Swift - Apple
+
+オープンソースかつクロスプラットフォームであることは確かですが、囲い込み効果が強いです。言語仕様などに参考になるところはあるものの、 Apple 製品に使うなどの理由がない限り積極的に使うことはないと思います。
