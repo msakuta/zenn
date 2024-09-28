@@ -324,6 +324,8 @@ Rust であれば、まず借用チェッカがこのような参照を防ぎま
 
 ## ランタイムの依存先
 
+これは自動微分の実装とは直接の関係はないのですが、 Linux 上で Swift を動かそうとすると直面する課題です。
+
 Swift はネイティブコンパイル言語ですが、実行時に独自のランタイムライブラリを必要とします。それだけではなく、共有ライブラリとして Swift の名前のついたいくつかのライブラリに依存します。
 
 ```
@@ -344,7 +346,13 @@ root@363d7037d889:/work# ldd main
         libBlocksRuntime.so => /usr/lib/swift/linux/libBlocksRuntime.so (0x00007f92d453b000)
 ```
 
-これはコンパイルした環境から持ち出すには依存先ライブラリもパッケージ化する必要があることを意味します。[依存先ライブラリをスタティックリンクする方法](https://www.swift.org/documentation/articles/static-linux-getting-started.html)もあるのですが、その情報がめちゃくちゃ見つけにくく、ランタイムがシステムにインストールされていることを前提としたツール群であるという印象を受けます。
+このため、 Docker でコンパイルするとその外からは実行できません。
+
+```
+./main: error while loading shared libraries: libswiftSwiftOnoneSupport.so: cannot open shared object file: No such file or directory
+```
+
+これはコンパイルした環境から持ち出すには依存先ライブラリもパッケージ化する必要があることを意味します。[依存先ライブラリをスタティックリンクする方法](https://www.swift.org/documentation/articles/static-linux-getting-started.html)もあるのですが、その情報がめちゃくちゃ見つけにくく、さらに追加の SDK を使ってビルドする必要があります。コンパイラに組み込みの機能にはできなかったんでしょうか。 Apple 製品のようにランタイムがシステムにインストールされていることを前提としたツール群であるという印象を受けます。
 
 
 ## 総括
