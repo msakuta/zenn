@@ -109,29 +109,32 @@ switch node.value {
 }
 ```
 
-特に言うことはありませんが、強いて言えば `Option` 型の位置づけに一貫性がないような気がします。
+特に言うことはありませんが、強いて言えば `Optional` 型の位置づけに一貫性がないような気がします。
 
-Swift のオプショナル型は、内部的には次のような enum として定義されているように思えるのですが...
+Swift のオプショナル型は、内部的には次のような enum として定義されているようです。
 
 ```swift
 enum Optional<T> {
-    case Some(T)
-    case None
+    case some(T)
+    case none
 }
 ```
 
-...enum のように扱おうとするとパターンマッチができません。
+実際そのようにパターンマッチもできます。
 
 ```swift
 let opt: Int? = 42;
 
 switch opt {
-    case let .Some(v): print(v)
-    case .None: print("None")
+    case let .some(v): print(v)
+    case .none: print("None")
 }
 ```
 
-パターン内で `Some` と `None` を区別するには、後置 `?` と `nil` を使います。
+より簡潔にパターン内で `some` と `none` を区別するには、後置 `?` と `nil` を使うこともできます[^1]。
+
+[^1]: 実は最初大文字始まりの `Some` と `None` かと思って動かなかったので探しているうちに `?` と `nil` に行きつきました。
+Swift の命名規則では列挙子は小文字始まりのようで、ここは少しだけ Rust と異なります。
 
 ```swift
 switch opt {
