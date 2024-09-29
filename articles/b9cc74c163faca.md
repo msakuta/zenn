@@ -3,7 +3,7 @@ title: "Swift で自動微分してみた感想"
 emoji: "💨"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["アルゴリズム", "swift", "自動微分"]
-published: false
+published: true
 ---
 
 [Tsoding](https://www.youtube.com/watch?v=LTP5c4NqA8k&ab_channel=TsodingDaily) にインスパイアされたので今回は Swift で自動微分してみました。いつも通りソースは GitHub にあります。
