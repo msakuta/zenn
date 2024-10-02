@@ -50,7 +50,7 @@ Ruscal はバイトコードインタプリタ言語であり、ネイティブ�
 
 まずは、最適化をコンパイルのどのタイミングで適用するかを考えます。定数畳み込みは AST の定数計算のサブツリーを定数リテラルで置き換える操作なので、ソースのパースが終わり、 AST が構築された後、ただし中間コードへコンパイルする前である必要があります。型チェックも同じタイミングで走りますが、最適化と型チェックはどちらが先でもかまいません。以下はかなり概念的な最適化関数 `optimize` の挿入位置です。最適化はデバッグ時にはオフにしたいのでコンパイルスイッチで適用しないこともできるようにしておきます。
 
-```diff
+```diff rust
  pub fn write_program(
    ..
  ) -> Result<(), Box<dyn std::error::Error>> {
@@ -102,6 +102,7 @@ pub fn optimize(ast: &mut Statements) -> Result<(), String> {
   for stmt in ast {
     match stmt {
       Statement::Expression(ex) => optim_expr(ex)?,
+      Statement::VarDef { ex, .. } => optim_expr(ex)?,
       Statement::VarAssign { ex, .. } => optim_expr(ex)?,
       _ => {}
     }
@@ -196,7 +197,7 @@ fn optim_bin_op<'a>(
 
 ## AST の出力
 
-さて、この辺で最適化が上手く機能しているかを可視化するための機能を拡充します。今までは `Debug` トレイトによって AST の中身を出力していましたが、これだと以下のように非常に冗長な表現になり、むしろ理解を阻みます。
+さて、この辺で最適化が上手く機能しているかを可視化するための機能を拡充します。今まではコマンドラインで `-a` オプションを渡したときに `Debug` トレイトによって AST の中身を出力していましたが、これだと以下のように非常に冗長な表現になり、むしろ理解を阻みます。
 
 ```
 AST: [
@@ -316,3 +317,198 @@ type Constants<'a> = HashMap<String, Expression<'a>>;
      ExprEnum::StrLiteral(_) => Some(expr.clone()),
      ExprEnum::Add(lhs, rhs) => optim_bin_op(
 ```
+
+これをテストするため、次のようなコードを最適化に渡してみます。
+
+```
+var a: f64 = 1 + 2;
+print(a * 3);
+a = 40 + 2;
+print(a * 1);
+
+fn non_const() -> f64 {
+    90 + 6
+}
+
+a = non_const();
+
+print(a);
+```
+
+`a` に定数式 `1 + 2` を代入し、さらにそれを使った定数式 `print(a * 3)` を使い、また再代入 (`a = 40 + 2`) をしています。関数の評価は非定数式をみなし、再代入によって最適化が無効になるはずです。
+
+最適化前後で次のようになりました。
+
+```
+AST: 
+  var a: f64 = (1+2);
+  print((a*3));
+  a = (40+2);
+  print((a*1));
+
+  fn non_const() -> f64 {
+    (90+6);
+  }
+
+  a = non_const();
+  print(a);
+AST after optimization:
+  var a: f64 = 3;
+  print(9);
+  a = 42;
+  print(42);
+
+  fn non_const() -> f64 {
+    96;
+  }
+
+  a = non_const();
+  print(a);
+```
+
+### 制御構文内の定数伝搬
+
+さて、少しややこしいのがループ内の定数伝搬です。今まではプログラムの流れが上から下へ順番であったので、定数テーブルを更新するのも上から下でシンプルでした。しかしループの場合は処理の流れが巻き戻るので、必ずしもその順に定数を評価すればいいわけではありません。例えば、次のコードを見てください。
+
+```
+var a: f64 = 1;
+print(a);          // (1)
+
+for i in 1 to 10 {
+    print(a);      // (2)
+    a = a + i;
+}
+
+a = 42;
+print(a);          // (3)
+```
+
+(1) の時点で `a` は明らかに定数ですが、 (2) の時点ではどうでしょうか？ループの最初のイテレーションは定数ですが、二回目以降は `i` の値に依存するため定数ではなくなります。このような変数は一般に定数で置き換えることはできません。
+
+ところが、 (3) の時点ではどうでしょうか。再度定数 `42` が代入されているので、これは定数式となります。
+
+もう一つの例が、条件分岐です (`non_const()` は非定数式と見なします)。
+
+```
+var a: f64 = 24;
+
+if non_const() {
+    print(a);     // (1)
+} else {
+    a = 42;
+    print(a);     // (2)
+}
+
+print(a);         // (3)
+```
+
+(1) と (2) の時点では `a` はそれぞれ定数式ですが、 (3) の時点ではそうではありません。 `non_const()` の返り値次第で変わるからです。
+
+このように、制御構文が関わってくると最適化は非常にややこしくなります。一般に、処理の分岐がない一連のコードを基本ブロック (Basic block) といいますが、基本ブロック内で完結する最適化は局所論理で簡単にできますが、基本ブロックを跨ぐ最適化は大域的なデータフロー解析が必要になります。この辺から最適化のための解析とコンパイル時間のトレードオフが生じ始めます。
+
+本稿では「基本ブロックを跨ぐ(ループや分岐がある)場合にはその中に登場する変数を定数テーブルから削除する」という単純な戦略でこれを回避することにします。これは次の `check_assigned` と `check_assigned_expr` で実施します。
+
+```rust
+/// Check if there is a variable assigned in this statements and remove it from the constant table if exists.
+fn check_assigned(
+  stmts: &[Statement],
+  constants: &mut Constants,
+) {
+  for stmt in stmts {
+    match stmt {
+      Statement::Expression(ex)
+      | Statement::Return(ex)
+      | Statement::Yield(ex) => {
+        check_assigned_expr(ex, constants);
+      }
+      Statement::VarDef { name, ex, .. }
+      | Statement::VarAssign { name, ex, .. } => {
+        check_assigned_expr(ex, constants);
+        constants.remove(**name);
+      }
+      Statement::For {
+        start, end, stmts, ..
+      } => {
+        check_assigned_expr(start, constants);
+        check_assigned_expr(end, constants);
+        check_assigned(stmts, constants);
+      }
+      _ => {}
+    }
+  }
+}
+
+/// Check if there is a variable assigned in this sub-expression and remove it from the constant table if exists.
+fn check_assigned_expr(
+  expr: &Expression,
+  constants: &mut Constants,
+) {
+  match &expr.expr {
+    ExprEnum::FnInvoke(_, args) => {
+      for arg in args {
+        check_assigned_expr(arg, constants);
+      }
+    }
+    ExprEnum::Add(lhs, rhs)
+    | ExprEnum::Sub(lhs, rhs)
+    | ExprEnum::Mul(lhs, rhs)
+    | ExprEnum::Div(lhs, rhs)
+    | ExprEnum::Gt(lhs, rhs)
+    | ExprEnum::Lt(lhs, rhs) => {
+      check_assigned_expr(lhs, constants);
+      check_assigned_expr(rhs, constants);
+    }
+    ExprEnum::If(cond, t_branch, f_branch) => {
+      check_assigned_expr(cond, constants);
+      check_assigned(t_branch, constants);
+      if let Some(f_branch) = f_branch {
+        check_assigned(f_branch, constants);
+      }
+    }
+    ExprEnum::Await(ex) => check_assigned_expr(ex, constants),
+    _ => {}
+  }
+}
+```
+
+これを `optim_expr` の中で条件分岐だった時に呼び出します。
+
+```diff rust
+ fn optim_expr<'a>(
+   expr: &mut Expression<'a>,
+-  constants: &Constants<'a>,
++  constants: &mut Constants<'a>,
+ ) -> Result<(), String> {
++  if let ExprEnum::If(_, t_branch, f_branch) = &expr.expr {
++    check_assigned(t_branch, constants);
++    if let Some(f_branch) = f_branch {
++      check_assigned(f_branch, constants);
++    }
++  }
++
+   if let Some(val) = const_expr(expr, constants) {
+     *expr = val;
+   }
+```
+
+また、ループの場合も呼び出します。
+
+```diff rust
+ pub fn optimize(ast: &mut Statements) -> Result<(), String> {
+   // ...
+   for stmt in ast {
+     match stmt {
+       // ...
++      For { stmts, .. } => {
++        // Variables assigned in a loop is generally not a constant, so let's remove them.
++        check_assigned(stmts, &mut constants);
++      }
+       _ => {}
+     }
+   }
+ }
+```
+
+しかしながら、これでは最も最適化したいループの中身が最適化できないので、効果は限定的です。
+
+基本ブロックを跨ぐ最適化は長くなりそうなので次の記事にします^^;
