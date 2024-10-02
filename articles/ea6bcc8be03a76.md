@@ -1,0 +1,318 @@
+---
+title: "[Rust] コンパイラ最適化 - 定数畳み込み"
+emoji: "📚"
+type: "tech" # tech: 技術記事 / idea: アイデア
+topics: ["rust"]
+published: false
+---
+
+Rust で作るプログラミング言語シリーズです。
+
+コンパイラによる最適化というと、実行バイナリを高速化する技術であり、程度の差こそあれ、事実上すべてのネイティブコンパイル言語に備わっている機能です。
+
+書籍では紙面の都合で紹介できなかったのですが、要望もあったので補足しておきます。
+
+一口に最適化と言っても、それが適用されるタイミングによって様々な手法があり、実際にはそれを組み合わせたものになります。例えば：
+
+* AST最適化
+  * 定数畳み込み・伝搬
+  * ループの展開
+  * インライン展開
+* 中間コード最適化
+* リンク時最適化
+* CPUによる最適化
+
+などです。
+
+本稿では最も基本となる定数畳み込み・伝搬を扱います。コードは Ruscal のリポジトリにプッシュしてあります。
+
+https://github.com/msakuta/ruscal
+
+主に [optimizer.rs](https://github.com/msakuta/ruscal/blob/master/src/optimizer.rs) を参照してください。
+
+Ruscal はバイトコードインタプリタ言語であり、ネイティブコンパイル言語ではありませんが、基本的なアイデアはネイティブコンパイル言語にも使いまわせると思います。
+
+
+## 最適化の基本ルール
+
+すべての最適化に共通する重要な前提条件として、**プログラムの意味を変えてはならない**というものがあります。どれほど高速になっても、プログラムの意味が変わってしまうのであればそれは間違った最適化です。
+
+プログラミング言語によっては、オプティマイザが変えても良い挙動をあらかじめ規定しているものがあります。このような挙動に依存するプログラムを書いた結果、予測不可能な動作が生じる場合を **未定義動作** (**Undefined behavior**) といいます[^1]。例えば、 Rust で同じオブジェクトに対して複数の可変参照を作った時は(unsafe を使わないと起こせませんが)未定義動作です。
+
+[^1]: 全ての未定義動作がオプティマイザによって変わる動作とは限りません。例えば C 言語でバッファオーバーランを起こしたときの動作はオプティマイザの如何に関わらず未定義動作です。ほどんどの場合が segfault でしょう。
+
+また、予測される動作のうちいずれかが起こると規定されているものを**未規定動作** (**Unspecified behavior**) といいます[^2]。例えば C 言語や C++ では関数の引数が評価される順番は規定されていません。第一引数から順に評価されるのか、最後の引数から評価されるかはコンパイラ依存で、最適化の具合によって変わるかもしれません。とはいえ、どちらかが正しく起こることはわかっているので、ほとんどのプログラムでは問題になりません。評価順に依存する副作用を持つ実引数を与えたときだけ問題になります。
+
+[^2]: Unspecified behavior については、日本語で呼ばれることが非常に少なく、 Wikipedia の未定義動作の一部で触れられている以外に文献で見たことがありません。
+
+
+## AST最適化の基本構成
+
+まずは、最適化をコンパイルのどのタイミングで適用するかを考えます。定数畳み込みは AST の定数計算のサブツリーを定数リテラルで置き換える操作なので、ソースのパースが終わり、 AST が構築された後、ただし中間コードへコンパイルする前である必要があります。型チェックも同じタイミングで走りますが、最適化と型チェックはどちらが先でもかまいません。以下はかなり概念的な最適化関数 `optimize` の挿入位置です。最適化はデバッグ時にはオフにしたいのでコンパイルスイッチで適用しないこともできるようにしておきます。
+
+```diff
+ pub fn write_program(
+   ..
+ ) -> Result<(), Box<dyn std::error::Error>> {
+   let mut compiler = Compiler::new();
+   let mut stmts = parse_program(source_file, source)?;
+
++  if args.optimize {
++    optimize(&mut stmts)?;
++  }
+
+   let mut tc_ctx = TypeCheckContext::new();
+   for (fname, f) in &args.additional_funcs {
+     tc_ctx.add_fn(fname.clone(), f());
+   }
+
+   compiler.compile(&stmts)?;
+
+   compiler.write_funcs(writer)?;
+ }
+```
+
+次に、最適化ロジックが満たすべきインターフェースを考えてみます。 AST を変更するには、純粋な関数型言語のアプローチでは、 AST を引数に取り、改変した AST を返す次のようなインターフェースを思いつきます。
+
+```rust
+pub fn optimize(ast: &[Statement]) -> Result<Vec<Statement>, String>;
+```
+
+しかし、実際の AST はほとんど変更せず、一部を単純化したもので置き換えるだけなので、可変参照を渡して直接更新する方が効率的でしょう。
+
+```rust
+pub fn optimize(ast: &mut Statements) -> Result<(), String>;
+```
+
+この関数を最適化コンパイルスイッチがオンの場合のみ呼び出すようにすれば、入り口の定義は終了です。
+
+```rust
+if args.optimize {
+    optimize(&mut stmts)?;
+}
+```
+
+
+## 定数折り畳み
+
+次に、具体的に定数折り畳みがどのような AST の変形を施すかを考えてみます。まずは AST 内の全ての文をスキャンし、式を含むものであればその式を最適化する関数を呼び出します。最も直感的なのは式文 (`Statement::Expression`) ですが、その他にも変数定義 `Statement::VarDef` や変数代入文 `Statement::VarAssign` が式を含みます。
+
+```rust
+pub fn optimize(ast: &mut Statements) -> Result<(), String> {
+  for stmt in ast {
+    match stmt {
+      Statement::Expression(ex) => optim_expr(ex)?,
+      Statement::VarAssign { ex, .. } => optim_expr(ex)?,
+      _ => {}
+    }
+  }
+  Ok(())
+}
+```
+
+これを処理する関数を次のように定義します。現時点では単純に「定数式であればその値で置き換える」という処理です。定数式かどうかは `const_expr` 関数で定義します。
+
+```rust
+fn optim_expr(expr: &mut Expression) -> Result<(), String> {
+  if let Some(val) = const_expr(expr) {
+    println!("optim const_expr: {val:?}");
+    *expr = val;
+  }
+  Ok(())
+}
+```
+
+さて、ここで肝となる定数式の定義を `const_expr` とします。この関数は引数の式が定数のみで構成されている場合（変数や実引数を含まない場合）その定数を `Some` で返し、そうでなければ `None` を返します。少し特徴的なのは式の値を AST のサブツリー (`Expression`) で返すということで、値型 (`Value`) は返しません。後ほどサブツリーを置き換えることを考えるとこの方が使い勝手が良いです。
+
+```rust
+fn const_expr<'a>(
+  expr: &Expression<'a>,
+) -> Option<Expression<'a>> {
+  Some(match &expr.expr {
+    ExprEnum::NumLiteral(_) => expr.clone(),
+    ExprEnum::StrLiteral(_) => expr.clone(),
+    ExprEnum::Add(lhs, rhs) => optim_bin_op(
+      |lhs, rhs| lhs + rhs,
+      |lhs, rhs| Some(lhs.to_owned() + rhs),
+      lhs,
+      rhs,
+      expr.span,
+    )?,
+    ExprEnum::Sub(lhs, rhs) => optim_bin_op(
+      |lhs, rhs| lhs - rhs,
+      |lhs, rhs| None,
+      lhs,
+      rhs,
+      expr.span,
+    )?,
+    // ..
+    ExprEnum::FnInvoke(span, args) => {
+      let args = args
+        .iter()
+        .map(|arg| {
+          const_expr(arg).unwrap_or_else(|| arg.clone())
+        })
+        .collect();
+      Expression::new(
+        ExprEnum::FnInvoke(*span, args),
+        expr.span,
+      )
+    }
+    _ => return None,
+  })
+}
+```
+
+リテラルである `NumLiteral` や `StrLiteral` はそのまま返すのは当然とわかりますが、四則演算のロジックは繰り返しが多いので `optim_bin_op` というジェネリック関数でまとめています。この関数の第一引数は数値リテラル同士の演算を定義するラムダ式、第二引数は文字列同士です。文字列は `+` 演算子しか許されていないので、 `Option` を返すラムダ式となっており、 `-`, `*`, `/` 演算子は `None` を返します。
+
+二項演算子の処理 `optim_bin_op` は以下の通りです。
+
+```rust
+fn optim_bin_op<'a>(
+  op_num: impl Fn(f64, f64) -> f64,
+  op_str: impl Fn(&str, &str) -> Option<String>,
+  lhs: &Expression<'a>,
+  rhs: &Expression<'a>,
+  span: Span<'a>,
+  constants: &Constants<'a>,
+) -> Option<Expression<'a>> {
+  use ExprEnum::*;
+  if let Some((lhs, rhs)) =
+    const_expr(&lhs, constants).zip(const_expr(&rhs, constants))
+  {
+    match (&lhs.expr, &rhs.expr) {
+      (NumLiteral(lhs), NumLiteral(rhs)) => Some(
+        Expression::new(NumLiteral(op_num(*lhs, *rhs)), span),
+      ),
+      (StrLiteral(lhs), StrLiteral(rhs)) => op_str(lhs, rhs)
+        .map(|ex| Expression::new(StrLiteral(ex), span)),
+      _ => None,
+    }
+  } else {
+    None
+  }
+}
+```
+
+## AST の出力
+
+さて、この辺で最適化が上手く機能しているかを可視化するための機能を拡充します。今までは `Debug` トレイトによって AST の中身を出力していましたが、これだと以下のように非常に冗長な表現になり、むしろ理解を阻みます。
+
+```
+AST: [
+    Expression(
+        Expression {
+            expr: FnInvoke(
+                LocatedSpan {
+                    offset: 0,
+                    line: 1,
+                    fragment: "print",
+                    extra: (),
+                },
+                [
+                    Expression {
+                        expr: Sub(
+                            Expression {
+                                expr: Mul(
+                                    Expression {
+                                        expr: Add(
+                                            Expression {
+                                                expr: NumLiteral(
+                                                    1.0,
+                                                ),
+                                                span: LocatedSpan {
+                                                    offset: 7,
+                                                    line: 1,
+                                                    fragment: "1",
+                                                    extra: (),
+                                                },
+                                            },
+                                            ...
+```
+
+ここで AST をソースコードのようにフォーマットするロジックを `Statement::format` および `Expression::format` メソッドとして定義しておきます。これはパースの逆変換(ソースから AST へ変換する代わりに、 AST からソースへ変換)と考えると分かりやすいでしょう。詳細は省きますが、これで最適化前後が次のように出力されます。スクリプト例: [34-optim_num.rscl](https://github.com/msakuta/ruscal/blob/master/scripts/34-optim_num.rscl)
+
+```
+AST:
+  print((((1+2)*3)-4));
+AST after optimization:
+  print(5);
+```
+
+もちろん、文字列式も折りたためます。スクリプト例: [34-optim_str.rscl](https://github.com/msakuta/ruscal/blob/master/scripts/34-optim_str.rscl)
+
+```
+AST:
+  print(("1"+"2"));
+AST after optimization:
+  print("12");
+```
+
+
+## 定数伝搬
+
+定数の折り畳みは最も基本的な AST の最適化でした。もう一歩進んだ最適化が定数伝搬です。これは定数式で初期化された変数が以降の式で出てきたら定数で置き換えるというものです。
+
+まずは各時点で定義されている定数の名前と値の集合を `Constants` という型で持っておきます。
+
+```rust
+type Constants<'a> = HashMap<String, Expression<'a>>;
+```
+
+これを最適化エントリポイント `optimize` 関数の中で初期化して `optim_expr` へ渡します。変数定義が定数式で初期化されていればそれを定数テーブルへ記録します。また、変数への再代入があればその時点での定数式であるかどうかを再度評価します。
+
+```diff rust
+ pub fn optimize(ast: &mut Statements) -> Result<(), String> {
++  let mut constants = Constants::new();
+   for stmt in ast {
+     match stmt {
+-      Statement::Expression(ex) => optim_expr(ex)?,
+-      Statement::VarAssign { ex, .. } => optim_expr(ex)?,
++      Statement::Expression(ex) => optim_expr(ex, &constants)?,
++      Statement::VarDef { name, ex, .. } => {
++        optim_expr(ex, &constants)?;
++        if let Some(ex) = const_expr(ex, &constants) {
++          constants.insert(name.to_string(), ex);
++        }
++      }
++      Statement::VarAssign { name, ex, .. } => {
++        optim_expr(ex, &constants)?;
++        if let Some(ex) = const_expr(ex, &constants) {
++          constants.insert(name.to_string(), ex);
++        }
++      }
+       _ => {}
+     }
+   }
+   Ok(())
+ }
+```
+
+`optim_expr` の中身は変わらず、 `const_expr` に定数テーブルを渡すだけです。
+
+```diff rust
+-fn optim_expr(expr: &mut Expression) -> Result<(), String> {
+-  if let Some(val) = const_expr(expr) {
++fn optim_expr<'a>(
++  expr: &mut Expression<'a>,
++  constants: &Constants<'a>,
++) -> Result<(), String> {
++  if let Some(val) = const_expr(expr, constants) {
+     println!("optim const_expr: {val:?}");
+     *expr = val;
+   }
+```
+
+`const_expr` は定数テーブルを使って変数名が出てきたら定数で置き換えるということをします。
+
+```diff rust
+ fn const_expr<'a>(
+   expr: &Expression<'a>,
++  constants: &Constants<'a>,
+ ) -> Option<Expression<'a>> {
+   match &expr.expr {
++    ExprEnum::Ident(name) => constants.get(**name).cloned(),
+     ExprEnum::NumLiteral(_) => Some(expr.clone()),
+     ExprEnum::StrLiteral(_) => Some(expr.clone()),
+     ExprEnum::Add(lhs, rhs) => optim_bin_op(
+```
