@@ -1,9 +1,9 @@
 ---
 title: "[Rust] 自作言語での TUI デバッガのススメ"
-emoji: "🐡"
+emoji: "🐀"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: ["Rust", "自作言語"]
-published: false
+topics: ["Rust", "自作言語", "デバッガ", "TUI", "Ratatui"]
+published: true
 ---
 
 Rust で作るプログラミング言語シリーズです。
