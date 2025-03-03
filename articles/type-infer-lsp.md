@@ -3,7 +3,7 @@ title: "[Rust] 型推論結果を LSP でエディターにライブ表示して
 emoji: "🖋️"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Rust", "自作言語", "型推論", "Typeinference", "LSP"]
-published: false
+published: true
 ---
 
 Rust で作るプログラミング言語シリーズです。
