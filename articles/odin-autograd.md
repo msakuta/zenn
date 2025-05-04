@@ -1,8 +1,8 @@
 ---
 title: "Odin で自動微分してみた感想"
-emoji: "🙆"
+emoji: "🐎"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: ["自動微分", "odin"]
+topics: ["自動微分", "アルゴリズム", "odin"]
 published: false
 ---
 
