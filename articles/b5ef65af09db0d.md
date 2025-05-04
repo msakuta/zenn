@@ -115,7 +115,21 @@ foo のほうが薄緑の期間が長く、読解により多くのワーキン�
 
 ## コードメトリクス
 
-さて、ここまでの話だけなら、ただの「感想」ですが、我々はコードを解析するツールを持っているので、実際に測ることができます。
+さて、ここまでの話だけなら、ただの「チラシ裏のアイデア」ですが、我々はコードを解析するツールを持っているので、実際に測ることができます。ここでは私の開発している [Mascal]() という言語を対象に試してみます。
+
+具体的には、次のように名前と出現範囲のマップを `NameRangeMap` という型で定義し、 AST をスキャンして範囲を調べる `complexity` という関数を用意します。 Mascal この範囲は行単位で、あまり粒度は高くありませんが、人間の認知能力を測るのでむしろ大体の値を見積もるという意味では適しています。
+
+```rust
+type NameRangeMap = HashMap<String, (u32, u32)>;
+
+pub fn complexity(ast: &[Statement]) -> usize {
+    let mut names = NameRangeMap::new();
+    let sum = stmts_complexity(ast, &mut names);
+    sum + names
+        .iter()
+        .fold(0, |acc, (_, val)| acc + (val.1 - val.0) as usize)
+}
+```
 
 ## その他のコードメトリクス
 
