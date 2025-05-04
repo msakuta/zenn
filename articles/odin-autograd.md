@@ -132,6 +132,70 @@ D:\a\Odin\Odin\src\llvm_backend_expr.cpp(3849): Assertion Failure: `e != nullptr
 
 これは私の PC のパスではなく、ビルド環境のものと思われます。 LLVM の内部のエラーを踏んでいるようです。これ以上のエラーのコンテキストはないので、解決のしようがありません。このため、 [Rust](https://github.com/msakuta/rustograd), [Zig](https://github.com/msakuta/zigrad), [Scala](https://github.com/msakuta/scagrad), [Swift](https://github.com/msakuta/swigrad) ではやっていた三角関数の微分のグラフは odigrad ではプロットできませんでした。
 
+### 関数型言語機能について
+
+Odin は全く関数型言語ではありません。 Zig のように全力で命令型です。
+
+このため、自動微分のようにツリーを辿るロジックでは、 Rust ではパターンマッチを使って次のように複数の変数を一度に判別できていたところを、
+
+```rust
+    let ret = match nodes[idx as usize].value {
+        // ...
+        Add(lhs, rhs) => {
+            let lhs = gen_graph(nodes, lhs, wrt, cb, optim);
+            let rhs = gen_graph(nodes, rhs, wrt, cb, optim);
+            match (lhs, rhs) {
+                (Some(lhs), None) => Some(lhs),
+                (None, Some(rhs)) => Some(rhs),
+                (Some(lhs), Some(rhs)) => Some(add_add(nodes, lhs, rhs, optim)),
+                _ => None,
+            }
+        }
+        // ...
+```
+
+次のように書かざるを得ません。
+
+```odin
+    #partial switch v in tape.nodes[node].uni {
+        case TapeOp:
+            lhs := tape_gen_graph(tape, v.lhs, wrt)
+            rhs := tape_gen_graph(tape, v.rhs, wrt)
+            lhs_v, lhs_ok := lhs.(int)
+            rhs_v, rhs_ok := rhs.(int)
+            switch v.op {
+                case .Add:
+                    if lhs_ok && rhs_ok {
+                        return tape_add(tape, lhs_v, rhs_v)
+                    }
+                    if lhs_ok {
+                        return lhs_v
+                    }
+                    if rhs_ok {
+                        return rhs_v
+                    }
+```
+
+ループに関しては Ranged for loop のように書けますが、インデックスも必要なら取れます。
+
+```odin
+    for node, i in tape.nodes {
+        // ...
+    }
+```
+
+命令型言語としては十分でしょうが、関数型言語の filter, map, reduce などのコンビネータを使うとやはり物足りなく感じます。
+
+
+### コンパイル速度に関して
+
+コンパイル速度はかなり速いと思います。特にベンダーライブラリに相当する機能をほかの言語がパッケージマネージャを介して解決しなければならないときに差が際立ちます。
+
+簡単な raylib アプリケーションで `zig build run` と `odin run` を試してみましたが、後者の方が明らかに速いです。
+
+Rust でも raylib で比較してみましたが、 Windows 上ではビルドできなかったので WSL でビルドしたため、公平な比較にはなりません。とはいえ、 Rust は最近ずいぶん速くなり、 Odin と遜色ないと思われます。
+
+
 ### 思想に関して
 
 総評して Ginger Bill 氏の思想が強く反映された言語であり、彼の考えに同調できるならば良い言語と感じられることでしょう。とはいえ、 Ginger Bill 氏は現実主義的であり、こだわりが強すぎると感じることはありませんでした。
