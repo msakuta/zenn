@@ -3,7 +3,7 @@ title: "Odin で自動微分してみた感想"
 emoji: "🐎"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["自動微分", "アルゴリズム", "odin"]
-published: false
+published: true
 ---
 
 [Odin](https://odin-lang.org/) という言語があります。これは PC ゲーム向けではありますが、近頃流行っている C や C++ の代替となるネイティブコンパイル汎用言語です。 Rust ともポジションが近く気になっていたので、今回は自動微分シリーズに Odin を使いました。
