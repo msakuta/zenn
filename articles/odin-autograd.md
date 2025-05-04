@@ -12,9 +12,17 @@ https://github.com/msakuta/odigrad
 
 自動微分シリーズはこれまでに [Rust](https://github.com/msakuta/rustograd), [Zig](https://github.com/msakuta/zigrad), [Scala](https://github.com/msakuta/scagrad), [Swift](https://github.com/msakuta/swigrad) でやっています。
 
+
+## 出力例
+
 ![output](/images/odigrad.png)
 
 ![graph](/images/odigrad-graph.png)
+
+
+## Odin の簡単な紹介
+
+Odin そのものが(特に日本では)非常にマイナーな言語なので、少しだけ紹介します。
 
 Odin の特徴は、低レイヤでありつつもモダンな言語機能を取り入れていることで、思想的には Zig が最も近いと思います[^1]。 Ginger Bill 氏の個人開発言語であり、 LLVM を使った多くの言語のうちの一つです[^2]。
 
@@ -28,13 +36,13 @@ Odin の特徴は、低レイヤでありつつもモダンな言語機能を取
 * 未定義動作は「定義する」ことによって排除する
 * 暗黙に渡されるコンテキスト変数
 
-## ベンダーライブラリ
+### ベンダーライブラリ
 
 Odin の最大の特徴かつ売りが、ベンダーライブラリです。これはコンパイラにバンドルされているライブラリ群で、 raylib や SDL などゲームのグラフィックスをサポートするのに役立つ多くのライブラリが含まれています。
 
 その代わりと言ってはなんですが、 Odin にはパッケージマネージャがありません。自作のライブラリを配布する良い方法があるのかどうかわかりません。 Git のサブモジュールでも使うのでしょうか。
 
-## 未定義動作はない
+### 未定義動作はない
 
 2番目の「未定義動作は「定義する」ことによって排除する」については少し説明が必要かと思います。
 
@@ -44,7 +52,7 @@ Odin の (というよりも Ginger Bill 氏の思想の)中では、動作を**
 
 これに関して私の感想は [#未定義動作に関する感想](#未定義動作に関する感想) に後述します。
 
-## 暗黙に渡されるコンテキスト変数
+### 暗黙に渡されるコンテキスト変数
 
 Odin にはコンテキストと呼ばれる概念があり、全ての関数にデフォルトで渡されます。コンテキストを取る関数は[独自の呼び出し規約](https://odin-lang.org/docs/overview/#calling-conventions)を持ち、 C の関数の呼び出し規約とは互換性を持ちません。このため、 C のライブラリにコールバックなどを渡すときは、 `"contextless"` 呼び出し規約で宣言する必要があります。これは MSVC の `__thiscall__` 呼び出し規約に似ています。
 
@@ -84,7 +92,7 @@ Context :: struct {
 
 `context` がコンテキスト変数を表すキーワードとして使われており、値のコピーを作ることでコンテキスト変数のスタックをプッシュする効果があることが分かります。
 
-## 導入方法
+### 導入方法
 
 Odin の導入方法は驚くほど簡単です。 [Releases](https://www.youtube.com/watch?v=0mbrLxAT_QI&ab_channel=WookashPodcast) の中からプラットフォームごとのバイナリをダウンロードして展開し、 Odin 実行ファイルを実行するだけです。私は Windows で試しましたが、追加で必要になるパッケージなどはありませんでした。[公式ドキュメント](https://odin-lang.org/docs/install/#release-requirements--notes)によると MSVC の Windows SDK が必要らしく、私の環境にはすでに存在していたと思われます。
 
