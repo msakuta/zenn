@@ -10,7 +10,11 @@ published: false
 
 https://github.com/msakuta/odigrad
 
-自動微分シリーズはこれまでに [Rust](https://github.com/msakuta/rustograd), [Zig](https://github.com/msakuta/zigrad), [Scala](https://github.com/msakuta/scagrad), [Swift]() でやっています。
+自動微分シリーズはこれまでに [Rust](https://github.com/msakuta/rustograd), [Zig](https://github.com/msakuta/zigrad), [Scala](https://github.com/msakuta/scagrad), [Swift](https://github.com/msakuta/swigrad) でやっています。
+
+![output](/images/odigrad.png)
+
+![graph](/images/odigrad-graph.png)
 
 Odin の特徴は、低レイヤでありつつもモダンな言語機能を取り入れていることで、思想的には Zig が最も近いと思います[^1]。 Ginger Bill 氏の個人開発言語であり、 LLVM を使った多くの言語のうちの一つです[^2]。
 
@@ -116,10 +120,17 @@ C や C++ はまた、複数のベンダーの実装を持つ言語であり、�
 
 ### ツール類に関して
 
-ツール類の充実度でいうと、 Rust はもちろん Zig よりも低いと言わざるを得ません。パッケージマネージャは(意図的に)ありませんし、公式の linter や formatter もありません。私は試していませんがデバッグも楽ではないらしいです。
+ツール類の充実度でいうと、 Rust はもちろん Zig よりも低いと言わざるを得ません。パッケージマネージャは(意図的に)ありませんし、公式の linter や formatter もありません。私は試していませんがデバッグも楽ではないらしいです。また、マイナー言語あるあるですが、 LLM のサポートも弱く、 Copilot はコンパイルできないコードサンプルを自信満々に出してきます。
 
-ほぼ個人開発の言語なので
+ほぼ個人開発の言語なので仕方のないことではありますが、ツールに頼らず自分の手でコードを書く気力のある人向けと言えます。
 
+また、自動微分のサンプルコードの一つで次のような謎のエラーが生じることがありました。
+
+```
+D:\a\Odin\Odin\src\llvm_backend_expr.cpp(3849): Assertion Failure: `e != nullptr`
+```
+
+これは私の PC のパスではなく、ビルド環境のものと思われます。 LLVM の内部のエラーを踏んでいるようです。これ以上のエラーのコンテキストはないので、解決のしようがありません。このため、 [Rust](https://github.com/msakuta/rustograd), [Zig](https://github.com/msakuta/zigrad), [Scala](https://github.com/msakuta/scagrad), [Swift](https://github.com/msakuta/swigrad) ではやっていた三角関数の微分のグラフは odigrad ではプロットできませんでした。
 
 ### 思想に関して
 
