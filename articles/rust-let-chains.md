@@ -3,7 +3,7 @@ title: "Rust 1.88 の let chains 構文について"
 emoji: "⛓"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Rust", "構文", "パターンマッチ"]
-published: false
+published: true
 ---
 
 ## Let chains 構文
