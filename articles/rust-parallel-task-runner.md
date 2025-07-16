@@ -65,3 +65,77 @@ Rust で並列処理によるパフォーマンス向上という観点で外せ
 それではどうすればよいでしょうか。今回はスレッドプールで非同期タスクランナーを自作することにしました。
 
 スレッドプールというと難しく聞こえるかもしれませんが、並列化に関する部分だけ取り出した[こちらのソース](https://github.com/msakuta/trains-rs/blob/master/src/app/heightmap/parallel_tile_gen.rs)を見てもらえばわかる通り、 100 行にも満たない簡単なものです。
+
+本記事の以降ではこのタスクランナーの動作を解説していきます。
+
+
+# 非同期タスクランナーの実装
+
+まず、タスクランナーに必要なデータは次の構造体で定義されています。
+
+```rust
+/// The tile generator that can run tasks in parallel threads.
+/// It is very high performance but does not work in Wasm.
+/// (Maybe there is a way to use it on Wasm with SharedMemoryBuffer,
+/// but it seems tooling and browser support are not readily available.)
+pub(super) struct TileGen {
+    /// The set of already requested tiles, used to avoid duplicate requests.
+    requested: HashSet<HeightMapKey>,
+    /// Request queue and the event to notify workers.
+    notify: Arc<(Mutex<VecDeque<(HeightMapKey, usize)>>, Condvar)>,
+    // We should join the handles, but we can also leave them and kill the process, since the threads only interact
+    // with memory.
+    _workers: Vec<std::thread::JoinHandle<()>>,
+    /// The channel to receive finished tiles.
+    finished: std::sync::mpsc::Receiver<(HeightMapKey, HeightMapTile)>,
+}
+```
+
+`requested` は、すでにタスクランナーに要求したタイルを覚えておいて2度要求することを防ぐためのフィールドです。メインスレッドでのみアクセスするので Mutex は必要ありません。
+
+`notify` はワーカースレッドに要求がきたことを伝えるための条件変数 (Condition variable) です。
+
+`_workers` はワーカースレッドの JoinHandle の集合です。スレッドがきれいに終了してからアプリケーションを終了するためにはこれらのハンドルを Join する必要がありますが、本アプリケーションではワーカースレッドの仕事はメモリにしか反映されないので、計算中に強制的に中断しても弊害はなく、今のところ使っていません[^1]。
+
+[^1]: これがもしファイルやネットワークへの出力を含む場合は、正しく終了したことを確認してからプログラムを終了する必要があります。さもないと中途半端に壊れたファイルが生成されたりする可能性があります。プロセスメモリはプログラム終了と同時に破棄されるので、そのような弊害はありません。
+
+`finished` は計算が終了したタスクをメインスレッドが受け取るためのチャンネルです。
+
+
+## スレッドプールの初期化
+
+スレッドプールの初期化は `TileGen::new` 関数で行います。簡単化すると次のようになります。
+
+```rust
+impl TileGen {
+    pub fn new(params: &HeightMapParams) -> Self {
+        let num_threads = std::thread::available_parallelism().map_or(8, |v| v.into());
+        let notify = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let workers = (0..num_threads)
+            .map(|_| {
+                let params_copy = params.clone();
+                let notify_copy = notify.clone();
+                let finished_tx_copy = finished_tx.clone();
+                std::thread::spawn(move || {
+                    // ...
+                })
+            })
+            .collect();
+        Self {
+            requested: HashSet::new(),
+            notify,
+            _workers: workers,
+            finished: finished_rx,
+        }
+    }
+}
+```
+
+まず、スレッドの数を `std::thread::available_parallelism()` で初期化します。取得できなければとりあえず 8 スレッドにします。
+
+次に、リクエスト送信用キューと条件変数を `notify` に初期化します。
+
+次に、終了したタスクを返すチャンネルを `finished_tx, finished_rx` というペアで生成します。
+
+次に、ワーカースレッドを `num_threads` だけ生成して `workers` に記憶します。ここで `std::thread::spawn` の中身はかなり肝なので後で解説します。
