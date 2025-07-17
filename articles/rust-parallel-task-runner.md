@@ -2,7 +2,7 @@
 title: "[Rust] プロシージャル生成向け非同期・並列タスクランナーの実装"
 emoji: "📘"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: []
+topics: ["Rust", "ゲーム開発", "アルゴリズム", "プロシージャル生成"]
 published: false
 ---
 
