@@ -47,6 +47,12 @@ pub(crate) struct HeightMapTile {
 }
 ```
 
+タイルのサイズは次の定数で定義しています。これは1軸のサイズであり、2次元のタイルの配列のサイズはこの二乗になります。
+
+```rust
+pub(super) const TILE_SIZE: usize = 128;
+```
+
 上記 2 つをハッシュマップの Key, Value とすることでタイルの集合を管理しています。
 
 ```rust
