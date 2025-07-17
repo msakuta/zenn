@@ -3,7 +3,7 @@ title: "[Rust] プロシージャル生成向け非同期・並列タスクラ�
 emoji: "📘"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Rust", "ゲーム開発", "アルゴリズム", "プロシージャル生成"]
-published: false
+published: true
 ---
 
 新しい Rust プロジェクトで地形生成をするときに、並列処理でパフォーマンスを向上させたくなりました。
