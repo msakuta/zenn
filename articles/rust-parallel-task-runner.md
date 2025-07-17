@@ -70,7 +70,7 @@ Rust で並列処理によるパフォーマンス向上という観点で外せ
 
 それではどうすればよいでしょうか。今回はスレッドプールで非同期タスクランナーを自作することにしました。
 
-スレッドプールというと難しく聞こえるかもしれませんが、並列化に関する部分だけ取り出した[こちらのソース](https://github.com/msakuta/trains-rs/blob/master/src/app/heightmap/parallel_tile_gen.rs)を見てもらえばわかる通り、 100 行にも満たない簡単なものです。
+スレッドプールというと難しく聞こえるかもしれませんが、並列化に関する部分だけ取り出した[こちらのソース](https://github.com/msakuta/trains-rs/blob/e2666b0397d7ff678a32c6bb222b2d39a7a3e75a/src/app/heightmap/parallel_tile_gen.rs)を見てもらえばわかる通り、 100 行にも満たない簡単なものです。
 
 本記事の以降ではこのタスクランナーの動作を解説していきます。本アプリケーションは開発中なので実装は以降で説明しているものから変わっているかもしれませんのでご了承ください。
 
@@ -264,7 +264,7 @@ impl TileGen {
 
 # WebAssembly 対応
 
-本ゲームは [WebAssembly バージョン](https://msakuta.github.io/trains-rs/)でも遊べますが、 WebAssembly でスレッドを扱うのは色々ハードルが高いので、シングルスレッドのロジックで置き換えています。このため上記の並列化の恩恵にはあずかれません。
+本ゲームは [WebAssembly バージョン](https://msakuta.github.io/trains-rs/)でも遊べますが、 WebAssembly でスレッドを扱うのは色々ハードルが高いので、[シングルスレッドのロジック](https://github.com/msakuta/trains-rs/blob/e2666b0397d7ff678a32c6bb222b2d39a7a3e75a/src/app/heightmap/progressive_tile_gen.rs)で置き換えています。このため上記の並列化の恩恵にはあずかれません。
 
 この切り替えは次のような条件コンパイルで行っています。
 
