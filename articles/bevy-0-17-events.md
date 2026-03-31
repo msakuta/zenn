@@ -10,16 +10,16 @@ published: false
 
 # Event と Message
 
-Bevy 0.16 までの Event は、 0.17 でいう Message に相当します。また、新たに Event と呼ばれる（より名前に即した）機構が追加されています。また、 Component の追加や削除といったイベントに対応する Component Hook という機構があり、これは Message とも Event とも異なります。これについては [Migration Guide](https://bevy.org/learn/migration-guides/0-16-to-0-17/#event-trait-split-rename) に書かれていますが、非常に混乱しやすいので、以下の表でまとめます。
+Bevy 0.16 までの Event には、 Buffered と Obsesrvable という種別がありましたが、 0.17 ではそれぞれ Message および Event にリネームされました。これはより機能に即した名前とするためです。また、 Component の追加や削除といったイベントに対応する Component Hook という機構があり、これは Message とも Event とも異なります。これについては [Migration Guide](https://bevy.org/learn/migration-guides/0-16-to-0-17/#event-trait-split-rename) に書かれていますが、非常に混乱しやすいので、以下の表でまとめます。
 
-| Bevy Version  | Message |  Event | Hook   |
-| ------------- | -------- | ------ | ------ |
-| ～0.16        | Event    | -     | Hook   |
-| 0.17～        | Message  | Event | Hook   |
+| Bevy Version  | Message |  Event | Hook   | Event Handler type |
+| ------------- | -------- | ------ | ------ | ------- |
+| ～0.16        | Event (buffered)    | Event (observable)     | Hook   | Trigger |
+| 0.17～        | Message  | Event | Hook   | On |
 
 # Bevy 0.16 までの Event = Bevy 0.17 以降の Message
 
-Bevy 0.16 までの Event は、専用の `EventWriter` と `EventReader` を System の引数にとり、 System 間でのデータのやり取りに使われていました。これは System の引数が増えすぎてきたときにロジックを分割したり、 Query の占有期間を最適化するのに使えましたが、主な用途は Entity 間でのメッセージのやり取りでした。
+Bevy 0.16 までの Buffered Event は、専用の `EventWriter` と `EventReader` を System の引数にとり、 System 間でのデータのやり取りに使われていました。これは System の引数が増えすぎてきたときにロジックを分割したり、 Query の占有期間を最適化するのに使えましたが、主な用途は Entity 間でのメッセージのやり取りでした。
 
 ```rust
 use bevy::prelude::*;
@@ -74,7 +74,7 @@ fn message_consumer(mut reader: MessageReader<MyMessage>) {
 
 # Message の挙動
 
-Bevy 0.17 で新たに Message と名付けられた機構は、まさにメッセージキューとして機能します。しかし、いくつか使用上の制約があり、後ほど Event と呼ばれる機能が別に用意されることになりました。
+Bevy 0.16 での Buffered Event あるいは Bevy 0.17 で新たに Message と名付けられた機構は、まさにメッセージキューとして機能します。しかし、いくつか使用上の制約があり、後ほど Event と呼ばれる機能との使い分けが重要になります。
 
 最も大きな注意点は、メッセージの配信タイミングです。 MessageReader は同じフレームで MessageWriter に書き込まれたメッセージを受信できる保証はありません。例えば次の例を見てください。
 
@@ -150,3 +150,84 @@ MyMessage(4) received!
 ```
 
 ただし、これを行わないと起動時のエラーになるので気づかないままになることはないでしょう。
+
+# Event の挙動
+
+Bevy 0.16 では Observable Event 、あるいは Bevy 0.17 では単に Event と呼ばれるのは、メッセージキューというよりはイベントと呼ばれるもののイメージに近いです。前述の例を Event で書き直すと次のようになります。
+
+```rust
+use bevy::prelude::*;
+
+#[derive(Event)]
+struct MyEvent(usize);
+
+#[derive(Resource)]
+struct Counter(usize);
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .insert_resource(Counter(0))
+        .add_systems(Update, (start_update, event_producer))
+        .add_observer(event_consumer)
+        .run();
+}
+
+fn start_update(counter: Res<Counter>, mut close_writer: MessageWriter<AppExit>) {
+    if 3 <= counter.0 {
+        close_writer.write(AppExit::Success);
+    } else {
+        println!("start_update ({})!", counter.0);
+    }
+}
+
+fn event_producer(mut commands: Commands, mut counter: ResMut<Counter>) {
+    println!("Triggering MyEvent({})!", counter.0);
+    commands.trigger(MyEvent(counter.0));
+    counter.0 += 1;
+}
+
+fn event_consumer(event: On<MyEvent>) {
+    println!("MyEvent({}) received!", event.0);
+}
+```
+
+違いとしては、 `.add_event()` でイベントの型を登録しておかなくてもよいということと、 `.add_systems{}` の代わりに `.add_observer()` でハンドラを登録することと、そのハンドラの第一引数の型に `On<MyEvent>` を使う点です。
+
+また、イベントの発行には `commands.trigger()` を使います。 `MessageWriter` と異なり、メッセージの型ごとに `Writer` を用意しなくても済みます。これは一つの System で多数のイベントを扱うときに冗長性を減らすのに役立ちます。
+
+上のプログラムの出力は次のようになります。
+
+```
+start_update (0)!
+Triggering MyEvent(0)!
+MyEvent(0) received!
+start_update (1)!
+Triggering MyEvent(1)!
+MyEvent(1) received!
+start_update (2)!
+Triggering MyEvent(2)!
+MyEvent(2) received!
+Triggering MyEvent(3)!
+MyEvent(3) received!
+```
+
+Messageと異なり、発行されたイベントは同じフレームで消費されていることがわかると思います。これは次のフレームまでのキューではなく、トリガされた System にできるだけ近いタイミングで消費される性質によるものです。
+
+## ハンドラの型
+
+もう一つの混乱の元が、 Event のハンドラの型です。
+
+Bevy 0.17 までは `Trigger<T>` という名前だったハンドラが `On<T>` に変更されました。 `Trigger` も deprecated のままで使い続けることもできるので、実際のコードでは混ざる可能性もあります。
+
+```rust
+fn event_consumer(event: On<MyEvent>) {
+    println!("MyEvent({}) received!", event.0);
+}
+```
+
+# 使い分け
+
+Message は一フレームに大量に発行されるようなメッセージについては、 Event よりも高いパフォーマンスが期待されるとしています。これに対し、 Event は使い勝手が良いのと、イベントが消費されるタイミングが決定論的であるというのが利点です。用途に応じて使い分けるとよいでしょう。
+
+とはいえ、個人的にはほとんど全てを Event で書いています。 Message のわずかなパフォーマンスの利点が、 Event の利点を上回るケースはそれほど多くないと思います。
