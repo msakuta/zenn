@@ -8,6 +8,8 @@ published: false
 
 過去に [Bevy についての記事](https://zenn.dev/msakuta/articles/40c1ad41b1c62e)を書いてから早くも4年近く経ちました。 Bevy もその間に進化を遂げ、様々な変化を経ています。しかし、 Bevy は未だに 1.0 に達しておらず、破壊的変更が度々なされています。ここではその中でも混乱を招きやすい、 Event 周りについて解説したいと思います。
 
+ここで紹介するコードサンプルは [Github](https://github.com/msakuta/bevy-events-test) にも置いてあります。
+
 # Event と Message
 
 Bevy 0.16 までの Event には、 Buffered と Obsesrvable という種別がありましたが、 0.17 ではそれぞれ Message および Event にリネームされました。これはより機能に即した名前とするためです。また、 Component の追加や削除といったイベントに対応する Component Hook という機構があり、これは Message とも Event とも異なります。これについては [Migration Guide](https://bevy.org/learn/migration-guides/0-16-to-0-17/#event-trait-split-rename) に書かれていますが、非常に混乱しやすいので、以下の表でまとめます。
