@@ -1,8 +1,8 @@
 ---
-title: "Bevy 0.18 時点での Event 周りの変遷"
-emoji: "🐥"
+title: "[Rust] Bevy 0.18 時点での Event 周りの変遷"
+emoji: "⚽"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: ["Rust", "Bevy"]
+topics: ["Rust", "Bevy", "ゲーム開発", "ECS"]
 published: false
 ---
 
