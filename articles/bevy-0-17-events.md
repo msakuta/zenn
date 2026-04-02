@@ -3,7 +3,7 @@ title: "[Rust] Bevy 0.18 時点での Event 周りの変遷"
 emoji: "⚽"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Rust", "Bevy", "ゲーム開発", "ECS"]
-published: false
+published: true
 ---
 
 過去に [Bevy についての記事](https://zenn.dev/msakuta/articles/40c1ad41b1c62e)を書いてから早くも4年近く経ちました。 Bevy もその間に進化を遂げ、様々な変化を経ています。しかし、 Bevy は未だに 1.0 に達しておらず、破壊的変更が度々なされています。ここではその中でも混乱を招きやすい、 Event 周りについて解説したいと思います。
