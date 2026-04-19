@@ -196,7 +196,7 @@ fn event_consumer(event: On<MyEvent>) {
 
 違いとしては、 `.add_event()` でイベントの型を登録しておかなくてもよいということと、 `.add_systems{}` の代わりに `.add_observer()` でハンドラを登録することと、そのハンドラの第一引数の型に `On<MyEvent>` を使う点です。
 
-また、イベントの発行には `commands.trigger()` を使います。 `MessageWriter` と異なり、メッセージの型ごとに `Writer` を用意しなくても済みます。これは一つの System で多数のイベントを扱うときに冗長性を減らすのに役立ちます。
+また、イベントの発行には `commands.trigger()` を使います。 `MessageWriter` と異なり、メッセージの型ごとに `Writer` を用意しなくても済みます。実際の型は `trigger()` のジェネリック型でディスパッチされるので、 `EventWriter` と比べて動的ポリモーフィズムのオーバーヘッドはありません。これは一つの System で多数のイベントを扱うときに冗長性を減らすのに役立ちます。
 
 上のプログラムの出力は次のようになります。
 
